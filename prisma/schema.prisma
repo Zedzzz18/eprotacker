@@ -1,0 +1,647 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============ ACCESS / USERS ============
+
+enum RoleName {
+  ADMIN
+  HQ
+  LOCAL_COUNTRY
+  BRAND
+  CRM
+  WEB
+  LEGAL
+  PARTNER
+  VIEWER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  fullName     String
+  email        String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  scopes        UserScope[]
+  sessions      Session[]
+  tasksOwned    Task[]           @relation("TaskOwner")
+  tasksAssigned Task[]           @relation("TaskAssignee")
+  comments      Comment[]
+  notifications Notification[]
+  activityLogs  ActivityLog[]
+  documents     Document[]
+  approvals     Approval[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// A user can have multiple scopes, e.g. LOCAL_COUNTRY+Belgium, BRAND+DS
+model UserScope {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      RoleName
+  countryId String?
+  country   Country?  @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  brandId   String?
+  brand     Brand?    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ============ CORE HIERARCHY ============
+
+model Country {
+  id                   String   @id @default(cuid())
+  name                 String   @unique
+  code                 String   @unique
+  region               String?
+  projectStatus        String   @default("Not Started")
+  launchDate           DateTime?
+  countryOwner         String?
+  legalStatus          String   @default("Not Started")
+  offerStatus          String   @default("Not Started")
+  crmStatus            String   @default("Not Started")
+  webStatus            String   @default("Not Started")
+  communicationStatus  String   @default("Not Started")
+  documentationStatus  String   @default("Not Started")
+  trainingStatus       String   @default("Not Started")
+  partnerStatus        String   @default("Not Started")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  partners        Partner[]
+  projectCountries ProjectCountry[]
+  journeys        Journey[]
+  tasks           Task[]
+  offers          Offer[]
+  localAdaptations LocalOfferAdaptation[]
+  documents       Document[]
+  faqs            Faq[]
+  risks           Risk[]
+  webPages        WebPage[]
+  crmActivities   CrmActivity[]
+  userScopes      UserScope[]
+}
+
+model Brand {
+  id                    String   @id @default(cuid())
+  name                  String   @unique
+  active                Boolean  @default(true)
+  brandOwner            String?
+  communicationStrategy String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  projectBrands ProjectBrand[]
+  journeys      Journey[]
+  taskBrands    TaskBrand[]
+  offers        Offer[]
+  localAdaptations LocalOfferAdaptation[]
+  documents     Document[]
+  faqs          Faq[]
+  risks         Risk[]
+  webPages      WebPage[]
+  crmActivities CrmActivity[]
+  userScopes    UserScope[]
+}
+
+model Partner {
+  id              String    @id @default(cuid())
+  name            String
+  countryId       String
+  country         Country   @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  contact         String?
+  contractStatus  String    @default("Draft")
+  startDate       DateTime?
+  endDate         DateTime?
+  technology      String?
+  offer           String?
+  technicalIntegration String?
+  commercialOffer String?
+  customerSupport String?
+  sla             String?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  documents Document[]
+  offers    Offer[]
+  faqs      Faq[]
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("In Progress")
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  countries ProjectCountry[]
+  brands    ProjectBrand[]
+  epics     Epic[]
+  tasks     Task[]
+  milestones Milestone[]
+}
+
+model ProjectCountry {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  countryId String
+  country   Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, countryId])
+}
+
+model ProjectBrand {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  brandId   String
+  brand     Brand   @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, brandId])
+}
+
+enum JourneyType {
+  ONLINE
+  OFFLINE
+  HYBRID
+}
+
+model Journey {
+  id            String      @id @default(cuid())
+  name          String
+  countryId     String
+  country       Country     @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  brandId       String
+  brand         Brand       @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  journeyType   JourneyType
+  targetAudience String?
+  trigger       String?
+  owner         String?
+  startDate     DateTime?
+  endDate       DateTime?
+  status        String      @default("Not Started")
+  description   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  steps        JourneyStep[]
+  tasks        Task[]
+  crmActivities CrmActivity[]
+  webPages     WebPage[]
+  risks        Risk[]
+}
+
+model JourneyStep {
+  id          String   @id @default(cuid())
+  journeyId   String
+  journey     Journey  @relation(fields: [journeyId], references: [id], onDelete: Cascade)
+  name        String
+  order       Int
+  channelId   String?
+  channel     Channel? @relation(fields: [channelId], references: [id])
+  onlineOffline String @default("Online")
+  owner       String?
+  trigger     String?
+  description String?
+  status      String   @default("Not Started")
+  startDate   DateTime?
+  endDate     DateTime?
+  url         String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tasks Task[]
+}
+
+enum ChannelType {
+  ONLINE
+  OFFLINE
+}
+
+model Channel {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  channelType ChannelType
+  description String?
+  owner       String?
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  journeySteps JourneyStep[]
+  taskChannels TaskChannel[]
+  campaignChannels CampaignChannel[]
+  crmActivities CrmActivity[]
+  webPages     WebPage[]
+}
+
+model Epic {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  subEpics SubEpic[]
+  tasks    Task[]
+}
+
+model SubEpic {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  epicId      String
+  epic        Epic     @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tasks Task[]
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  IN_REVIEW
+  APPROVED
+  COMPLETED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Task {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  projectId   String
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  countryId   String?
+  country     Country?     @relation(fields: [countryId], references: [id])
+  journeyId   String?
+  journey     Journey?     @relation(fields: [journeyId], references: [id])
+  journeyStepId String?
+  journeyStep JourneyStep? @relation(fields: [journeyStepId], references: [id])
+  epicId      String?
+  epic        Epic?        @relation(fields: [epicId], references: [id])
+  subEpicId   String?
+  subEpic     SubEpic?     @relation(fields: [subEpicId], references: [id])
+  ownerId     String?
+  owner       User?        @relation("TaskOwner", fields: [ownerId], references: [id])
+  assigneeId  String?
+  assignee    User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  priority    TaskPriority @default(MEDIUM)
+  status      TaskStatus   @default(NOT_STARTED)
+  startDate   DateTime?
+  dueDate     DateTime?
+  risk        String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  brands       TaskBrand[]
+  channels     TaskChannel[]
+  dependsOn    TaskDependency[] @relation("TaskDependent")
+  blocks       TaskDependency[] @relation("TaskBlocker")
+  comments     Comment[]
+  approvals    Approval[]
+}
+
+model TaskBrand {
+  id     String @id @default(cuid())
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  brandId String
+  brand  Brand  @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, brandId])
+}
+
+model TaskChannel {
+  id        String  @id @default(cuid())
+  taskId    String
+  task      Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  channelId String
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, channelId])
+}
+
+// blockerTaskId blocks dependentTaskId
+model TaskDependency {
+  id              String @id @default(cuid())
+  blockerTaskId   String
+  blockerTask     Task   @relation("TaskBlocker", fields: [blockerTaskId], references: [id], onDelete: Cascade)
+  dependentTaskId String
+  dependentTask   Task   @relation("TaskDependent", fields: [dependentTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerTaskId, dependentTaskId])
+}
+
+model Milestone {
+  id        String    @id @default(cuid())
+  name      String
+  projectId String
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dueDate   DateTime?
+  status    String    @default("Not Started")
+  createdAt DateTime  @default(now())
+}
+
+// ============ OFFERS ============
+
+enum OfferScope {
+  GLOBAL
+  LOCAL
+}
+
+model Offer {
+  id            String     @id @default(cuid())
+  name          String
+  scope         OfferScope @default(GLOBAL)
+  hqOwner       String?
+  countryId     String?
+  country       Country?   @relation(fields: [countryId], references: [id])
+  brandId       String?
+  brand         Brand?     @relation(fields: [brandId], references: [id])
+  partnerId     String?
+  partner       Partner?   @relation(fields: [partnerId], references: [id])
+  description   String?
+  eligibility   String?
+  startDate     DateTime?
+  endDate       DateTime?
+  status        String     @default("Draft")
+  legalStatus   String     @default("Not Started")
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  localAdaptations LocalOfferAdaptation[]
+  documents Document[]
+}
+
+model LocalOfferAdaptation {
+  id                  String   @id @default(cuid())
+  globalOfferId       String
+  globalOffer         Offer    @relation(fields: [globalOfferId], references: [id], onDelete: Cascade)
+  countryId           String
+  country              Country  @relation(fields: [countryId], references: [id])
+  brandId             String?
+  brand               Brand?   @relation(fields: [brandId], references: [id])
+  localRule           String?
+  localRestriction    String?
+  localPrice          String?
+  localBenefit        String?
+  localEligibility    String?
+  localLegalRequirement String?
+  decision            String   @default("Pending") // YES / NO / TBD / Pending
+  decisionOwner       String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+// ============ CRM / WEB / CAMPAIGNS ============
+
+model CrmActivity {
+  id          String   @id @default(cuid())
+  countryId   String
+  country     Country  @relation(fields: [countryId], references: [id])
+  brandId     String?
+  brand       Brand?   @relation(fields: [brandId], references: [id])
+  journeyId   String?
+  journey     Journey? @relation(fields: [journeyId], references: [id])
+  channelId   String?
+  channel     Channel? @relation(fields: [channelId], references: [id])
+  campaignName String?
+  trigger     String?
+  audience    String?
+  vehicle     String?
+  emailContent String?
+  owner       String?
+  deadline    DateTime?
+  status      String   @default("Not Started")
+  approval    String   @default("Pending")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WebPage {
+  id          String   @id @default(cuid())
+  countryId   String
+  country     Country  @relation(fields: [countryId], references: [id])
+  brandId     String?
+  brand       Brand?   @relation(fields: [brandId], references: [id])
+  journeyId   String?
+  journey     Journey? @relation(fields: [journeyId], references: [id])
+  channelId   String?
+  channel     Channel? @relation(fields: [channelId], references: [id])
+  currentUrl  String?
+  newUrl      String?
+  pageTitle   String?
+  changeRequired String?
+  owner       String?
+  deadline    DateTime?
+  status      String   @default("Not Started")
+  legalApproval String @default("Pending")
+  brandApproval String @default("Pending")
+  publicationDate DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Campaign {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("Draft")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  channels CampaignChannel[]
+}
+
+model CampaignChannel {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  channelId  String
+  channel    Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, channelId])
+}
+
+// ============ DOCUMENTS / FAQ / LEGAL ============
+
+model Document {
+  id           String   @id @default(cuid())
+  name         String
+  category     String?
+  countryId    String?
+  country      Country? @relation(fields: [countryId], references: [id])
+  brandId      String?
+  brand        Brand?   @relation(fields: [brandId], references: [id])
+  partnerId    String?
+  partner      Partner? @relation(fields: [partnerId], references: [id])
+  offerId      String?
+  offer        Offer?   @relation(fields: [offerId], references: [id])
+  ownerId      String?
+  owner        User?    @relation(fields: [ownerId], references: [id])
+  status       String   @default("Draft")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  versions  DocumentVersion[]
+  approvals Approval[]
+}
+
+model DocumentVersion {
+  id          String   @id @default(cuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version     Int
+  filePath    String
+  fileName    String
+  fileSize    Int
+  mimeType    String
+  uploadedAt  DateTime @default(now())
+}
+
+model Faq {
+  id           String   @id @default(cuid())
+  question     String
+  globalAnswer String?
+  localAnswer  String?
+  countryId    String?
+  country      Country? @relation(fields: [countryId], references: [id])
+  brandId      String?
+  brand        Brand?   @relation(fields: [brandId], references: [id])
+  partnerId    String?
+  partner      Partner? @relation(fields: [partnerId], references: [id])
+  category     String?
+  owner        String?
+  status       String   @default("Draft")
+  legalApproval String  @default("Pending")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+enum ApprovalStage {
+  DRAFT
+  INTERNAL_REVIEW
+  THIRD_PARTY_REVIEW
+  LEGAL_REVIEW
+  APPROVED
+  PUBLISHED
+}
+
+model Approval {
+  id         String        @id @default(cuid())
+  stage      ApprovalStage @default(DRAFT)
+  taskId     String?
+  task       Task?         @relation(fields: [taskId], references: [id])
+  documentId String?
+  document   Document?     @relation(fields: [documentId], references: [id])
+  reviewerId String?
+  reviewer   User?         @relation(fields: [reviewerId], references: [id])
+  decision   String?
+  comment    String?
+  decidedAt  DateTime?
+  createdAt  DateTime      @default(now())
+}
+
+// ============ RISKS / COMMENTS / NOTIFICATIONS / AUDIT ============
+
+model Risk {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  countryId   String?
+  country     Country? @relation(fields: [countryId], references: [id])
+  brandId     String?
+  brand       Brand?   @relation(fields: [brandId], references: [id])
+  journeyId   String?
+  journey     Journey? @relation(fields: [journeyId], references: [id])
+  owner       String?
+  impact      String   @default("Medium")
+  probability String   @default("Medium")
+  severity    String   @default("Medium")
+  mitigation  String?
+  deadline    DateTime?
+  status      String   @default("Open")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  body      String
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model ActivityLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  objectType   String
+  objectId     String
+  field        String?
+  previousValue String?
+  newValue     String?
+  createdAt    DateTime @default(now())
+}
+
+model RaciAssignment {
+  id       String @id @default(cuid())
+  action   String
+  role     String // HQ, Local, Brand, Legal, Partner...
+  raciType String // R, A, C, I (can combine e.g. "A/R")
+}
